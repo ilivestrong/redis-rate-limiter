@@ -1,4 +1,4 @@
-package internal
+package limiters
 
 import (
 	"fmt"
@@ -9,9 +9,8 @@ import (
 
 var limiter = rate.NewLimiter(1, 3)
 
-
 func Limit(next http.Handler) http.Handler {
-	
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !limiter.Allow() {
 			fmt.Println(http.StatusText(http.StatusTooManyRequests))

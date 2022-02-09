@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -26,12 +25,12 @@ func New() *redis.Client {
 
 func (rc RedisClient) Store(ctx context.Context, key string, val interface{}) {
 	fmt.Println("Request to store", key, val)
-	time.Sleep(1 * time.Second)
+	// time.Sleep(1 * time.Second)  // Test and Trial for expiring context timeout
 	rc.Client.Set(ctx, key, val, 0)
 }
 
 func (rc RedisClient) Get(ctx context.Context, key string) (interface{}, error) {
 	fmt.Println("Request to get", key)
-	time.Sleep(3 * time.Second)
+	// time.Sleep(3 * time.Second) // Test and Trial for expiring context timeout
 	return rc.Client.Get(ctx, key).Result()
 }
