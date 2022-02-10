@@ -36,26 +36,10 @@ func main() {
 	}
 	defer rc.Close()
 
-	authLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
-		Ctx:  context.Background(),
-		Key:  key,
-		Type: limiters.Authenticate,
-	})
-	if err != nil {
-		panic(err)
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/store", storeHandler)
 	mux.HandleFunc("/auth", authHandler)
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		res, _ := authLimiter()
-		fmt.Println(getMessage(res))
-		if res.Allowed < 1 {
-			http.Error(rw, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -72,6 +56,14 @@ func main() {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
+	res, _ := getAuthLimiter()()
+	fmt.Println(getMessage(res))
+
+	if res.Allowed < 1 {
+		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		return
+	}
+
 	var authReq AuthRequest
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -106,8 +98,20 @@ func storeHandler(w http.ResponseWriter, r *http.Request) {
 
 func getMessage(res *redis_rate.Result) string {
 	if res.Allowed < 1 {
-		return fmt.Sprintf("[Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason:%s\n", key, http.StatusText(http.StatusTooManyRequests))
+		return fmt.Sprintf("[Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s\n", key, http.StatusText(http.StatusTooManyRequests))
 	} else {
 		return fmt.Sprintf("[Rate-limiter]- [SUCCESS]- Key: %s, Allowed: %d, Remaning: %d\n", key, res.Allowed, res.Remaining)
 	}
+}
+
+func getAuthLimiter() func() (*redis_rate.Result, error) {
+	authLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
+		Ctx:  context.Background(),
+		Key:  key,
+		Type: limiters.Authenticate,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return authLimiter
 }
