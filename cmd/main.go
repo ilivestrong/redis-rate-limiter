@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -12,6 +14,11 @@ import (
 	"github.com/ilivestrong/rate-limit-poc/internal/limiters"
 	"github.com/joho/godotenv"
 )
+
+type AuthRequest struct {
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
+}
 
 var rc internal.RedisClient
 var key = "localhost"
@@ -40,6 +47,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/store", storeHandler)
+	mux.HandleFunc("/auth", authHandler)
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		res, _ := authLimiter()
 		fmt.Println(getMessage(res))
@@ -61,6 +69,25 @@ func main() {
 		}
 	}))
 	http.ListenAndServe(":8000", mux)
+}
+
+func authHandler(w http.ResponseWriter, r *http.Request) {
+	var authReq AuthRequest
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(body, &authReq)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s", authReq.Type, authReq.Value)
+
+	w.Write([]byte("OK"))
 }
 
 func storeHandler(w http.ResponseWriter, r *http.Request) {
