@@ -3,7 +3,6 @@ package limiters
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -43,7 +42,9 @@ func init() {
 	}
 }
 
-func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (func() (*redis_rate.Result, error), error) {
+type checkLimit func() (*redis_rate.Result, error)
+
+func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (checkLimit, error) {
 	l := redis_rate.NewLimiter(rc)
 	if cfg != nil {
 		return func() (*redis_rate.Result, error) {
@@ -69,7 +70,6 @@ func getRate(lt LimiterType) redis_rate.Limit {
 }
 
 func loadVal(vk string) int {
-	fmt.Println(vk, os.Getenv(vk))
 	rate := strings.Split(os.Getenv(vk), ":")[1]
 	val, err := strconv.Atoi(rate)
 	if err != nil {

@@ -58,7 +58,7 @@ func main() {
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		res, _ := getAuthLimiter()()
-		fmt.Println(getMessage(res))
+		fmt.Println(getMessage("Authenticate", res))
 
 		if res.Allowed < 1 {
 			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
@@ -78,7 +78,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s", authReq.Type, authReq.Value)
+		fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s\n", authReq.Type, authReq.Value)
 
 		w.Write([]byte("OK"))
 	} else {
@@ -100,11 +100,11 @@ func storeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getMessage(res *redis_rate.Result) string {
+func getMessage(l string, res *redis_rate.Result) string {
 	if res.Allowed < 1 {
-		return fmt.Sprintf("[Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s\n", key, http.StatusText(http.StatusTooManyRequests))
+		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s, Retry After:%v\n", l, key, http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
 	} else {
-		return fmt.Sprintf("[Rate-limiter]- [SUCCESS]- Key: %s, Allowed: %d, Remaning: %d\n", key, res.Allowed, res.Remaining)
+		return fmt.Sprintf("[%s-Rate-limiter]- [SUCCESS]- Key: %s, Allowed: %d, Remaning: %d\n", l, key, res.Allowed, res.Remaining)
 	}
 }
 
