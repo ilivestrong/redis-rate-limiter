@@ -10,14 +10,19 @@ import (
 	"github.com/go-redis/redis_rate/v9"
 	"github.com/ilivestrong/rate-limit-poc/internal"
 	"github.com/ilivestrong/rate-limit-poc/internal/limiters"
+	"github.com/joho/godotenv"
 )
 
 var rc internal.RedisClient
 var key = "localhost"
-var ErrRedisGetTimeFailure = errors.New("redis server didn't respond in time")
-var ErrRedisWriteTimeFailure = errors.New("redis server didn't write in time")
+var ErrRedisGetExpired = errors.New("redis server didn't respond in time")
+var ErrRedisWriteExpired = errors.New("redis server didn't write in time")
 
 func main() {
+	envErr := godotenv.Load("config.env")
+	if envErr != nil {
+		fmt.Println("failed to load env, will work with default settings")
+	}
 
 	rc = internal.RedisClient{
 		Client: internal.New(),
@@ -34,14 +39,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-
 	mux.HandleFunc("/store", storeHandler)
-
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
 		res, _ := authLimiter()
 		fmt.Println(getMessage(res))
-
 		if res.Allowed < 1 {
 			http.Error(rw, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 			return
@@ -54,12 +55,11 @@ func main() {
 
 		select {
 		case <-ctx.Done():
-			fmt.Println(ErrRedisGetTimeFailure)
+			fmt.Println(ErrRedisGetExpired)
 		default:
 			fmt.Fprint(rw, val)
 		}
 	}))
-
 	http.ListenAndServe(":8000", mux)
 }
 
@@ -70,7 +70,7 @@ func storeHandler(w http.ResponseWriter, r *http.Request) {
 	rc.Store(ctx, "name", "Deepak") // put value to Redis
 	select {
 	case <-ctx.Done():
-		fmt.Println(ErrRedisWriteTimeFailure)
+		fmt.Println(ErrRedisWriteExpired)
 	default:
 		fmt.Fprint(w, "Value written!!!")
 
