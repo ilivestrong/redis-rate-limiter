@@ -38,7 +38,14 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/store", storeHandler)
-	mux.HandleFunc("/auth", authHandler)
+
+	authMW := limiters.NewRedisLimiterAsMW(rc.Client, &limiters.RedisLimiterConfig{
+		Ctx:  context.Background(),
+		Key:  key,
+		Type: limiters.Authenticate,
+	}, http.HandlerFunc(authHandler))
+
+	mux.Handle("/auth", authMW)
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -57,14 +64,6 @@ func main() {
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		res, _ := getAuthLimiter()()
-		fmt.Println(getMessage("Authenticate", res))
-
-		if res.Allowed < 1 {
-			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
-			return
-		}
-
 		var authReq AuthRequest
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {

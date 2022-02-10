@@ -3,6 +3,8 @@ package limiters
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -42,9 +44,23 @@ func init() {
 	}
 }
 
-type checkLimit func() (*redis_rate.Result, error)
+type CheckLimit func() (*redis_rate.Result, error)
 
-func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (checkLimit, error) {
+func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Handler) http.Handler {
+	lim := func() (CheckLimit, error) { return NewRedisLimiter(rc, cfg) }
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		fn, _ := lim()
+		res, _ := fn()
+		if res.Allowed < 1 {
+			fmt.Println("[MIDDLEWARE-RATE-LIMITER] - ACCESS DENIED")
+			http.Error(rw, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(rw, r)
+	})
+}
+
+func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (CheckLimit, error) {
 	l := redis_rate.NewLimiter(rc)
 	if cfg != nil {
 		return func() (*redis_rate.Result, error) {
