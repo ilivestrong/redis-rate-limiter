@@ -56,30 +56,35 @@ func main() {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
-	res, _ := getAuthLimiter()()
-	fmt.Println(getMessage(res))
+	if r.Method == http.MethodPost {
+		res, _ := getAuthLimiter()()
+		fmt.Println(getMessage(res))
 
-	if res.Allowed < 1 {
-		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
-		return
+		if res.Allowed < 1 {
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+
+		var authReq AuthRequest
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		err = json.Unmarshal(body, &authReq)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s", authReq.Type, authReq.Value)
+
+		w.Write([]byte("OK"))
+	} else {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
 
-	var authReq AuthRequest
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-
-	err = json.Unmarshal(body, &authReq)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-
-	fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s", authReq.Type, authReq.Value)
-
-	w.Write([]byte("OK"))
 }
 
 func storeHandler(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +96,7 @@ func storeHandler(w http.ResponseWriter, r *http.Request) {
 	case <-ctx.Done():
 		fmt.Println(ErrRedisWriteExpired)
 	default:
-		fmt.Fprint(w, "Value written!!!")
-
+		fmt.Fprint(w, "OK")
 	}
 }
 
