@@ -33,9 +33,19 @@ const (
 	Upload
 )
 
-var DefaultLimits map[string]int
+var (
+	LimiterTypes  map[LimiterType]string
+	DefaultLimits map[string]int
+)
 
 func init() {
+	LimiterTypes = map[LimiterType]string{
+		Authenticate: "auth",
+		Otp:          "otp",
+		Get:          "get",
+		Post:         "post",
+		Upload:       "upl",
+	}
 	DefaultLimits = map[string]int{
 		"Authenticate": 10,
 		"Otp":          5,
@@ -47,8 +57,12 @@ func init() {
 type CheckLimit func() (*redis_rate.Result, error)
 
 func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Handler) http.Handler {
-	lim := func() (CheckLimit, error) { return NewRedisLimiter(rc, cfg) }
+	lim := func() (CheckLimit, error) {
+		fmt.Printf("MIDDLEWARE CFG.Key: %s", cfg.Key)
+		return NewRedisLimiter(rc, cfg)
+	}
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		cfg.Key = MakeRateLimitKey(cfg.Type, r.RemoteAddr)
 		fn, _ := lim()
 		res, _ := fn()
 		if res.Allowed < 1 {
@@ -92,4 +106,8 @@ func loadVal(vk string) int {
 		return val
 	}
 	return DefaultLimits[vk]
+}
+
+func MakeRateLimitKey(ltype LimiterType, key string) string {
+	return fmt.Sprintf("%s~%s", LimiterTypes[ltype], key)
 }

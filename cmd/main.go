@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis_rate/v9"
+	"github.com/google/uuid"
 	"github.com/ilivestrong/rate-limit-poc/internal"
 	"github.com/ilivestrong/rate-limit-poc/internal/limiters"
 	"github.com/joho/godotenv"
@@ -41,16 +42,17 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// handler with rate limited used as non-middleware
 	mux.HandleFunc("/otp", otpHandler)
 
 	// middleware based rate limiter for POST /auth endpoint
 	authMW := limiters.NewRedisLimiterAsMW(rc.Client, &limiters.RedisLimiterConfig{
 		Ctx:  context.Background(),
-		Key:  key,
 		Type: limiters.Authenticate,
 	}, http.HandlerFunc(authHandler))
 	mux.Handle("/auth", authMW)
 
+	// handler without any rate limiting
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -81,14 +83,13 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
-
 		fmt.Printf("RECEIVED AUTHENTICATE REQUEST for Type: %s, Value: %s\n", authReq.Type, authReq.Value)
 
-		w.Write([]byte("OK"))
+		setCookie(w) // Creates a new session_id cookie to be sent in response headers
+		w.Write([]byte("Authentication successful!"))
 	} else {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
-
 }
 
 func otpHandler(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,8 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// rate limiting
-	res, _ := getLimiter(limiters.Otp)()
+	lim := getLimiter(limiters.Otp, limiters.MakeRateLimitKey(limiters.Otp, r.RemoteAddr))
+	res, _ := lim()
 	fmt.Println(getMessage("Otp", res))
 	if res.Allowed < 1 {
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
@@ -106,7 +108,8 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 	// check session validity
 	s, err := getSessionID(r)
 	if err != nil || s == "" {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// create/reuse existing otp
@@ -135,13 +138,13 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 
 func getMessage(l string, res *redis_rate.Result) string {
 	if res.Allowed < 1 {
-		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s, Retry After:%v\n", l, key, http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
+		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s, Retry After:%v\n", l, res.Limit.String(), http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
 	} else {
 		return fmt.Sprintf("[%s-Rate-limiter]- [SUCCESS]- Key: %s, Allowed: %d, Remaning: %d\n", l, key, res.Allowed, res.Remaining)
 	}
 }
 
-func getLimiter(lt limiters.LimiterType) func() (*redis_rate.Result, error) {
+func getLimiter(lt limiters.LimiterType, key string) func() (*redis_rate.Result, error) {
 	newLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
 		Ctx:  context.Background(),
 		Key:  key,
@@ -156,10 +159,20 @@ func getLimiter(lt limiters.LimiterType) func() (*redis_rate.Result, error) {
 func getSessionID(r *http.Request) (string, error) {
 	c, err := r.Cookie("session_id")
 	if err != nil {
-		return "", nil
+		return "", errors.New("no session_id cookie received")
 	}
 	if time.Now().Before(c.Expires) {
-		return "", errors.New("your session has expired or invalid")
+		return "", errors.New("your session_id has expired or invalid")
 	}
 	return c.Value, nil
+}
+
+func setCookie(w http.ResponseWriter) {
+	cookie := &http.Cookie{
+		Name:   "session_id",
+		Value:  uuid.NewString(),
+		MaxAge: 60,
+	}
+	fmt.Println("New Session_id: ", cookie.Value)
+	http.SetCookie(w, cookie)
 }
