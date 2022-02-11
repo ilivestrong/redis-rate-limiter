@@ -56,6 +56,7 @@ func init() {
 
 type CheckLimit func() (*redis_rate.Result, error)
 
+// Instantiate a new rate limiter as a Go middleware, providing the request handler to be wrapped
 func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Handler) http.Handler {
 	lim := func() (CheckLimit, error) {
 		return NewRedisLimiter(rc, cfg)
@@ -73,6 +74,7 @@ func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Ha
 	})
 }
 
+// Creates a new rate limiter as a func, with input as limit tracking storage and config values
 func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (CheckLimit, error) {
 	l := redis_rate.NewLimiter(rc)
 	if cfg != nil {
@@ -107,6 +109,7 @@ func loadVal(vk string) int {
 	return DefaultLimits[vk]
 }
 
+// Make a unique rate limiting key by using limiter type and identifier key
 func MakeRateLimitKey(ltype LimiterType, key string) string {
 	return fmt.Sprintf("%s~%s", LimiterTypes[ltype], key)
 }

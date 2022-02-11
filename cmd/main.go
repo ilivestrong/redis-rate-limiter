@@ -27,6 +27,8 @@ var (
 	key                  = "localhost"
 	ErrRedisGetExpired   = errors.New("redis server didn't respond in time")
 	ErrRedisWriteExpired = errors.New("redis server didn't write in time")
+	ErrNoCookieReceived  = errors.New("no session_id cookie received")
+	ErrSessionIDExpired  = errors.New("your session_id has expired or invalid")
 )
 
 func main() {
@@ -135,6 +137,7 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Generates allowed/denied message for a given rate limiter result
 func getMessage(l string, res *redis_rate.Result) string {
 	if res.Allowed < 1 {
 		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s, Retry After:%v\n", l, res.Limit.String(), http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
@@ -143,6 +146,7 @@ func getMessage(l string, res *redis_rate.Result) string {
 	}
 }
 
+// Instantiate a new rate limiter by type and a unique key
 func getLimiter(lt limiters.LimiterType, key string) func() (*redis_rate.Result, error) {
 	newLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
 		Ctx:  context.Background(),
@@ -155,17 +159,19 @@ func getLimiter(lt limiters.LimiterType, key string) func() (*redis_rate.Result,
 	return newLimiter
 }
 
+// Extract a cookie named "session_id" from client request
 func getSessionID(r *http.Request) (string, error) {
 	c, err := r.Cookie("session_id")
 	if err != nil {
-		return "", errors.New("no session_id cookie received")
+		return "", ErrNoCookieReceived
 	}
 	if time.Now().Before(c.Expires) {
-		return "", errors.New("your session_id has expired or invalid")
+		return "", ErrSessionIDExpired
 	}
 	return c.Value, nil
 }
 
+// Generate and attach a new cookie for storing session_id of the client to the response
 func setCookie(w http.ResponseWriter) {
 	cookie := &http.Cookie{
 		Name:   "session_id",
