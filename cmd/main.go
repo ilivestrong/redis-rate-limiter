@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -20,15 +21,17 @@ type AuthRequest struct {
 	Value string `json:"value,omitempty"`
 }
 
-var rc internal.RedisClient
-var key = "localhost"
-var ErrRedisGetExpired = errors.New("redis server didn't respond in time")
-var ErrRedisWriteExpired = errors.New("redis server didn't write in time")
+var (
+	rc                   internal.RedisClient
+	key                  = "localhost"
+	ErrRedisGetExpired   = errors.New("redis server didn't respond in time")
+	ErrRedisWriteExpired = errors.New("redis server didn't write in time")
+)
 
 func main() {
 	envErr := godotenv.Load("config.env")
 	if envErr != nil {
-		fmt.Println("failed to load env, will work with default settings")
+		fmt.Println("failed to load env, default settings will be used")
 	}
 
 	rc = internal.RedisClient{
@@ -37,15 +40,17 @@ func main() {
 	defer rc.Close()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/store", storeHandler)
 
+	mux.HandleFunc("/otp", otpHandler)
+
+	// middleware based rate limiter for POST /auth endpoint
 	authMW := limiters.NewRedisLimiterAsMW(rc.Client, &limiters.RedisLimiterConfig{
 		Ctx:  context.Background(),
 		Key:  key,
 		Type: limiters.Authenticate,
 	}, http.HandlerFunc(authHandler))
-
 	mux.Handle("/auth", authMW)
+
 	mux.Handle("/get", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -86,16 +91,45 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func storeHandler(w http.ResponseWriter, r *http.Request) {
+func otpHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	rc.Store(ctx, "name", "Deepak") // put value to Redis
+	// rate limiting
+	res, _ := getLimiter(limiters.Otp)()
+	fmt.Println(getMessage("Otp", res))
+	if res.Allowed < 1 {
+		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		return
+	}
+
+	// check session validity
+	s, err := getSessionID(r)
+	if err != nil || s == "" {
+		http.Error(w, err.Error(), http.StatusForbidden)
+	}
+
+	// create/reuse existing otp
+	var otp string
+	oldOtp, err := rc.Get(ctx, s)
+	if err != nil {
+		fmt.Printf("No existing Otp exists for : %s, generating new one", s)
+		fmt.Println(err.Error())
+	}
+
+	if oldOtp != "" {
+		otp = oldOtp.(string) // reuse old otp
+	} else {
+		otp = fmt.Sprintf("%d", rand.Intn(999999)) // generate new fake otp
+		fmt.Println("otp")
+		rc.Store(ctx, s, otp) // put new otp to redis for current user/session_id
+	}
+
 	select {
 	case <-ctx.Done():
 		fmt.Println(ErrRedisWriteExpired)
 	default:
-		fmt.Fprint(w, "OK")
+		fmt.Fprintf(w, "Here is your new OTP: %s", otp)
 	}
 }
 
@@ -107,14 +141,25 @@ func getMessage(l string, res *redis_rate.Result) string {
 	}
 }
 
-func getAuthLimiter() func() (*redis_rate.Result, error) {
-	authLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
+func getLimiter(lt limiters.LimiterType) func() (*redis_rate.Result, error) {
+	newLimiter, err := limiters.NewRedisLimiter(rc.Client, &limiters.RedisLimiterConfig{
 		Ctx:  context.Background(),
 		Key:  key,
-		Type: limiters.Authenticate,
+		Type: lt,
 	})
 	if err != nil {
 		panic(err)
 	}
-	return authLimiter
+	return newLimiter
+}
+
+func getSessionID(r *http.Request) (string, error) {
+	c, err := r.Cookie("session_id")
+	if err != nil {
+		return "", nil
+	}
+	if time.Now().Before(c.Expires) {
+		return "", errors.New("your session has expired or invalid")
+	}
+	return c.Value, nil
 }
