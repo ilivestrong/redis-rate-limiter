@@ -12,13 +12,19 @@ type RedisClient struct {
 }
 
 func New() *redis.Client {
-	fmt.Println("creating new client...")
+	fmt.Println("Creating new Redis client...")
 	c := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
 		DB:       0,
 	})
-	fmt.Println("New client ready...")
+	fmt.Println("Verifying Redis instance availability...")
+
+	pingRes := c.Ping(context.Background()).Err()
+	if pingRes != nil {
+		panic(pingRes)
+	}
+	fmt.Println("New Redis client ready...")
 	return c
 
 }

@@ -24,7 +24,6 @@ type AuthRequest struct {
 
 var (
 	rc                   internal.RedisClient
-	key                  = "localhost"
 	ErrRedisGetExpired   = errors.New("redis server didn't respond in time")
 	ErrRedisWriteExpired = errors.New("redis server didn't write in time")
 	ErrNoCookieReceived  = errors.New("no session_id cookie received")
@@ -100,7 +99,10 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 
 	// rate limiting
 	lim := getLimiter(limiters.Otp, limiters.MakeRateLimitKey(limiters.Otp, r.RemoteAddr))
-	res, _ := lim()
+	res, err := lim()
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(getMessage("Otp", res))
 	if res.Allowed < 1 {
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
@@ -140,9 +142,9 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 // Generates allowed/denied message for a given rate limiter result
 func getMessage(l string, res *redis_rate.Result) string {
 	if res.Allowed < 1 {
-		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Key: %s, Reason: %s, Retry After:%v\n", l, res.Limit.String(), http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
+		return fmt.Sprintf("[%s-Rate-limiter]- [ACCESS DENIED] - Reason: %s, Retry After:%v\n", l, http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
 	} else {
-		return fmt.Sprintf("[%s-Rate-limiter]- [SUCCESS]- Key: %s, Allowed: %d, Remaning: %d\n", l, key, res.Allowed, res.Remaining)
+		return fmt.Sprintf("[%s-Rate-limiter]- [SUCCESS]- Allowed: %d, Remaning: %d\n", l, res.Allowed, res.Remaining)
 	}
 }
 
