@@ -1,3 +1,9 @@
+/* This POC rate limiter leverages "github.com/go-redis/redis_rate/v9" package, which is based
+on rwz/redis-gcra and implements GCRA (aka leaky bucket) for rate limiting based on Redis.
+The code requires Redis version 3.2 or newer since it relies on replicate_commands feature.
+to perform rate limiting.
+*/
+
 package limiters
 
 import (
@@ -56,7 +62,7 @@ func init() {
 
 type CheckLimit func() (*redis_rate.Result, error)
 
-// Instantiate a new rate limiter as a Go middleware, providing the request handler to be wrapped
+// A Higher order function to generate a rate limiter as a Go middleware, providing the request handler to be wrapped
 func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Handler) http.Handler {
 	lim := func() (CheckLimit, error) {
 		return NewRedisLimiter(rc, cfg)
@@ -75,6 +81,7 @@ func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Ha
 }
 
 // Creates a new rate limiter as a func, with input as limit tracking storage and config values
+// Returns a func which checks allowed rate limiting based on key provided
 func NewRedisLimiter(rc *redis.Client, cfg *RedisLimiterConfig) (CheckLimit, error) {
 	l := redis_rate.NewLimiter(rc)
 	if cfg != nil {
@@ -89,13 +96,13 @@ func getRate(lt LimiterType) redis_rate.Limit {
 	var rate redis_rate.Limit
 	switch lt {
 	case Authenticate:
-		rate = redis_rate.PerHour(loadVal("Authenticate")) // each client can send 10 authentication requests per hour
+		rate = redis_rate.PerHour(loadVal("Authenticate"))
 	case Otp:
-		rate = redis_rate.PerMinute(loadVal("Otp")) // each client can send 5 otp/resend requests per minute
+		rate = redis_rate.PerMinute(loadVal("Otp"))
 	case Get:
-		rate = redis_rate.PerHour(loadVal("Get")) // each client can send 100 data requests per hour
+		rate = redis_rate.PerHour(loadVal("Get"))
 	case Post:
-		rate = redis_rate.PerMinute(loadVal("Post")) // each client can send 2 post requests per minute
+		rate = redis_rate.PerMinute(loadVal("Post"))
 	}
 	return rate
 }
