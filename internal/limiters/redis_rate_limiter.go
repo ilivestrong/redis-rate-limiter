@@ -72,10 +72,13 @@ func NewRedisLimiterAsMW(rc *redis.Client, cfg *RedisLimiterConfig, next http.Ha
 		fn, _ := lim()
 		res, _ := fn()
 		if res.Allowed < 1 {
-			fmt.Printf("[MIDDLEWARE-%s-RATE-LIMITER] - ACCESS DENIED, Reason: %s, Retry After: %v\n", LimiterTypes[cfg.Type], http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
+			fmt.Printf("\n[MIDDLEWARE-%s-RATE-LIMITER] - [ACCESS DENIED] - Reason: %s, Retry After: %v\n", LimiterTypes[cfg.Type], http.StatusText(http.StatusTooManyRequests), res.RetryAfter)
 			http.Error(rw, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 			return
+		} else {
+			fmt.Printf("\n[MIDDLEWARE-%s-RATE-LIMITER] - [SUCCESS] - Allowed:%d, Remaining: %d\n", LimiterTypes[cfg.Type], res.Allowed, res.Remaining)
 		}
+
 		next.ServeHTTP(rw, r)
 	})
 }

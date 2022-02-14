@@ -120,12 +120,12 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 	var otp string
 	oldOtp, err := rc.Get(ctx, s)
 	if err != nil {
-		fmt.Printf("No existing Otp exists for : %s, generating new one.....\n", s)
+		fmt.Printf("\nNo existing Otp exists for : %s, generating new one.....\n", s)
 	}
 
 	if oldOtp != "" {
 		otp = oldOtp.(string) // reuse old otp
-		fmt.Printf("Non-expired existing Otp - %s exists, will reuse.....\n", otp)
+		fmt.Printf("\nNon-expired existing Otp - %s exists, will reuse.....\n", otp)
 	} else {
 		otp = fmt.Sprintf("%d", rand.Intn(999999)) // generate new fake otp
 		rc.Store(ctx, s, otp)                      // put new otp to redis for current user/session_id
@@ -135,7 +135,7 @@ func otpHandler(w http.ResponseWriter, r *http.Request) {
 	case <-ctx.Done():
 		fmt.Println(ErrRedisWriteExpired)
 	default:
-		fmt.Fprintf(w, "Here is your new OTP: %s", otp)
+		fmt.Fprintf(w, "Here is your OTP: %s", otp)
 	}
 }
 
